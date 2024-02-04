@@ -8,21 +8,12 @@ import requests
 from bs4 import BeautifulSoup
 
 
-import locale
-
-
-def main_locale():
-    locale.setlocale(locale.LC_NUMERIC, '')
-    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')  # Ajusta a tu configuración regional si es diferente
-
-
-
 def load_data():
     components = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
     return components.drop('CIK', axis=1).set_index('Symbol')
 
 
-def load_quotes(ticker, period = '3y', interval = '1d'):
+def load_quotes(ticker, period = '5y', interval = '1d'):
     #eliminar nas
     
     return yf.download(ticker, period= period, interval=interval)
@@ -48,7 +39,7 @@ def load_statics(ticker):
                     key_statistics_dic[ticker][row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[-1]    
         
     key_statistics_dic[ticker] = pd.DataFrame(key_statistics_dic[ticker], index = [0]).T
-        # Luego de crear el DataFrame key_statistics_dic[ticker], puedes aplicar fillna('')
+
     key_statistics_dic[ticker] = key_statistics_dic[ticker].fillna(' ')
 
     return key_statistics_dic[ticker]
@@ -94,65 +85,60 @@ def main():
     st.title("Análisis Técnico - Indicadores Financieros")
 
     st.sidebar.title("Options")
-    show_companies_list = st.sidebar.checkbox('View companies list')
+
+    components = load_data()
+    st.subheader("Asset list")
+    st.dataframe(components[['Security', 'GICS Sector', 'Date added', 'Founded']])
+
+    st.sidebar.subheader('Select asset')
+    asset = st.sidebar.selectbox('Click below to select a new asset',
+                                 components.index.sort_values(), index=3,
+                                 format_func=lambda x: x + ' - ' + components.loc[x].Security)
     
-    if show_companies_list:
-        components = load_data()
-        st.subheader("Lista de Empresas")
-        st.dataframe(components[['Security', 'GICS Sector', 'Date added', 'Founded']])
+    st.title(components.loc[asset].Security)
+    st.markdown(f"<h4 style='font-size: 14px; margin-top: -15px; margin-bottom: 5px;'>{components.loc[asset]['GICS Sub-Industry']}</h4>", unsafe_allow_html=True)  
 
-        st.sidebar.subheader('Select asset')
-        asset = st.sidebar.selectbox('Click below to select a new asset',
-                                     components.index.sort_values(), index=3,
-                                     format_func=lambda x: x + ' - ' + components.loc[x].Security)
-        st.title(components.loc[asset].Security)
-        st.markdown(f"<h4 style='font-size: 14px; margin-top: -15px; margin-bottom: 5px;'>{components.loc[asset]['GICS Sub-Industry']}</h4>", unsafe_allow_html=True)  
+    st.subheader("Información de la Empresa")
+    st.table(components.loc[asset].iloc[1:])  # I exclude the first line that contains the company name.
 
-        # Mostrar la información de la empresa sin el checkbox
-        st.subheader("Información de la Empresa")
-        st.table(components.loc[asset].iloc[1:])  # Excluir la primera fila
 
-        # Obtener todos los tickers en la misma industria ########
-        tickers_same_industry = components[components['GICS Sub-Industry'] == components.loc[asset]['GICS Sub-Industry']].index
+    # Get all tickets in the same industry #
+    tickers_same_industry = components[components['GICS Sub-Industry'] == components.loc[asset]['GICS Sub-Industry']].index
+    
+    # Create a new dataframe with 'asset' and 'Security' columns
+    asset_security_df = pd.DataFrame({'Asset': tickers_same_industry, 'Security': components.loc[tickers_same_industry, 'Security'].values})
+    
+    # Display the table with asset names and their corresponding securities
+    st.subheader('Peers')
+    st.dataframe(asset_security_df)
+
+
+    #Section to modify the search period and interval
+    st.sidebar.subheader("Search Settings")
+    period_options = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
+    interval_options = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
+    
+    selected_period = st.sidebar.selectbox('Select Period', period_options, index=5)
+    selected_interval = st.sidebar.selectbox('Select Interval', interval_options, index=3)
+
+    historic_data = load_quotes(asset, selected_period, selected_interval)
+    data = historic_data.copy().dropna()
+
+
+    # Free selection
+    section = st.sidebar.slider('Number of quotes', min_value=30,
+                                max_value=min([2000, data.shape[0]]),
+                                value=500, step=10)
+
+
+
+    data2 = data[-section:]['Adj Close'].to_frame('Adj Close')
         
-        # Create a new dataframe with 'asset' and 'Security' columns
-        asset_security_df = pd.DataFrame({'Asset': tickers_same_industry, 'Security': components.loc[tickers_same_industry, 'Security'].values})
-        
-        # Display the table with asset names and their corresponding securities
-        st.subheader('Competidores de industría')
-        st.markdown(asset_security_df.style.hide(axis="index").to_html(), unsafe_allow_html=True)
-          
-
-        data0 = load_quotes(asset)
-        data = data0.copy().dropna()
-        data.index.name = None
-
-
-        # Sección para modificar el período y el intervalo de la búsqueda
-        st.sidebar.subheader("Search Settings")
-        period_options = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
-        interval_options = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
-        
-        selected_period = st.sidebar.selectbox('Select Period', period_options, index=5)
-        selected_interval = st.sidebar.selectbox('Select Interval', interval_options, index=3)
-
-        data0 = load_quotes(asset, selected_period, selected_interval)
-        data = data0.copy().dropna()
-        data.index.name = None
-
-
-        # Agregar la sección
-        section = st.sidebar.slider('Number of quotes', min_value=30,
-                                    max_value=min([2000, data.shape[0]]),
-                                    value=500, step=10)
-
-        data2 = data[-section:]['Adj Close'].to_frame('Adj Close')
-
-    # Funciones Dinámicas - Medias Móviles
+    #Dynamic Functions - Mobile Media
     st.sidebar.subheader('Moving Averages')
     
    
-    # Media Móvil Simple (SMA)
+    # Simple Mobile Media (SMA)
     sma_expander = st.sidebar.expander("Simple Moving Average (SMA)")
     sma_enabled = sma_expander.checkbox('Enable SMA', value=True)
     if sma_enabled:
@@ -160,7 +146,7 @@ def main():
         data[f'SMA {period}'] = data['Adj Close'].rolling(period).mean()
         data2[f'SMA {period}'] = data[f'SMA {period}'].reindex(data2.index)
     
-    # Media Móvil Simple 2 (SMA2)
+    # Simple Mobile Media 2 (SMA2)
     sma2_expander = st.sidebar.expander("Simple Moving Average 2 (SMA2)")
     sma2_enabled = sma2_expander.checkbox('Enable SMA2', value=True)
     if sma2_enabled:
@@ -178,46 +164,46 @@ def main():
     # Gráfico
     st.subheader('Chart')
     
-    # Convertir el índice a tipo Timestamp si es necesario
+    # index conversion to datetime
     data2.index = pd.to_datetime(data2.index)
     
     # Crear figura para los gráficos con subplots
     fig = make_subplots(rows=1, cols=1, shared_xaxes=True, subplot_titles=[f'{asset} - Historical Data'])
     
-    # Añadir medias móviles (SMA y SMA2)
+    # Add Mobile media (SMA y SMA2)
     if sma_enabled:
         fig.add_trace(go.Scatter(x=data2.index, y=data2[f'SMA {period}'], mode='lines', name=f'SMA {period}', line=dict(width=1)))
     
     if sma2_enabled:
         fig.add_trace(go.Scatter(x=data2.index, y=data2[f'SMA2 {period2}'], mode='lines', name=f'SMA2 {period2}', line=dict(width=1)))
     
-    # Añadir gráfico de Bollinger Bands
+    # Add graphic de Bollinger Bands
     if enable_boll_band:
         fig.add_trace(go.Scatter(x=data2.index, y=data2['MB'], mode='lines', name='MB', line=dict(width=1, color='rgba(255, 0, 0, 0.5)')))
         fig.add_trace(go.Scatter(x=data2.index, y=data2['UB'], mode='lines', name='UB', line=dict(width=1, color='rgba(0, 0, 255, 0.5)')))
         fig.add_trace(go.Scatter(x=data2.index, y=data2['LB'], mode='lines', name='LB', line=dict(width=1, color='rgba(0, 0, 255, 0.5)')))
         fig.add_trace(go.Scatter(x=data2.index, y=data2['UB'], fill='tonexty', fillcolor='rgba(173, 216, 230, 0.3)', line=dict(width=0, color='rgba(0, 0, 255, 0.2)')))
     
-    # Añadir gráfico de Precios
+    # add price graphic
     fig.add_trace(go.Scatter(x=data2.index, y=data2['Adj Close'], mode='lines', name='Adj Close', line=dict(width=1)))
     
-    # Configurar ejes
+    # Axis set up
     fig.update_yaxes(title_text='Values', secondary_y=False)
     
-    # Leyenda debajo del gráfico
+    # Leyend
 
     fig.update_layout(legend=dict(orientation='h', yanchor='bottom', y= 0, xanchor='auto', x=1))
     
-    # Añadir grid
+    # add grid
     fig.update_layout(
         xaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray'),
         yaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray'))
     
 
-    # Mostrar el gráfico interactivo
+    # Show graphic
     st.plotly_chart(fig)     
     
-    # Funciones Dinámicas - Technical Indicators
+    # Dynamic Functions - Technical Indicators
     
     st.sidebar.subheader('Technical Indicators')
     
@@ -239,7 +225,7 @@ def main():
     data[['MACD', 'SIGNAL']] = MACD(data, a=a_macd, b=b_macd, c=c_macd)
     data2[['MACD', 'SIGNAL']] = data[['MACD', 'SIGNAL']].reindex(data2.index)
     
-    # Gráfico ADX
+    # ADX Graphic 
     if enable_adx:
         fig_adx = go.Figure()
         fig_adx.add_trace(go.Scatter(x=data2.index, y=data2['ADX'], mode='lines', name='ADX'))
@@ -249,7 +235,7 @@ def main():
         st.plotly_chart(fig_adx)
     
     
-    # Gráfico MACD
+    # MACD Graphic 
     if enable_macd:
         fig_macd = go.Figure()
         fig_macd.add_trace(go.Scatter(x=data2.index, y=data2['MACD'], mode='lines', name='MACD'))
@@ -260,23 +246,23 @@ def main():
         st.plotly_chart(fig_macd)
   
 
-    # Estadísticas de precios para la industria
+    # Price statistics for the industry
     st.sidebar.subheader('Statistics for Industry')
     
-    # Botón de selección para tipo de dato (Adj Close o Volumen)
+    # Selection button for data type (Adj Close or Volume)
     data_type = st.sidebar.radio("Select Data Type", ['Adj Close', 'Volumen'], index=0)
     
-    # Crear un DataFrame con los datos seleccionados para todas las acciones en la misma industria
+    # Create a DataFrame with the selected data for all stocks in the same industry
     if data_type == 'Adj Close':
         data_industry = yf.download(tickers_same_industry.tolist(), period=selected_period, interval=selected_interval)['Adj Close']
     else:
         data_industry = yf.download(tickers_same_industry.tolist(), period=selected_period, interval=selected_interval)['Volume']
 
     
-       # Calcular las estadísticas descriptivas
+       # Calculate descriptive statistics
     industry_stats = data_industry.describe().round(2)
     
-    # Mostrar la tabla con el nombre de la columna como el ticker y el título como estadísticas del tipo de dato seleccionado
+    # Show the table with the column name as the ticker and the title as statistics of the selected data type
     st.subheader(f'Industry {data_type} Statistics')
     st.table(industry_stats.T.style.format("{:n}").set_caption(f'Industry {data_type} Statistics'))
       
