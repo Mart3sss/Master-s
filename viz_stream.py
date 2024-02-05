@@ -118,8 +118,8 @@ def main():
     period_options = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
     interval_options = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
     
-    selected_period = st.sidebar.selectbox('Select Period', period_options, index=5)
-    selected_interval = st.sidebar.selectbox('Select Interval', interval_options, index=3)
+    selected_period = st.sidebar.selectbox('Select Period', period_options, index=7)
+    selected_interval = st.sidebar.selectbox('Select Interval', interval_options, index=8)
 
     historic_data = load_quotes(asset, selected_period, selected_interval)
     data = historic_data.copy().dropna()
