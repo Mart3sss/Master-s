@@ -1,0 +1,367 @@
+---
+title: "Práctica - Análisis de Redes Sociales - MDSF"
+author: "TU NOMBRE"
+output:
+  html_document:
+    df_print: paged
+---
+El objetivo es analizar un grafo, que se provee como fichero en el mismo paquete que este enunciado. En este fichero, encontramos solamente dos columnas, correspondiente a una interacción entre dos nodos de la red. Esta red está formada por distintos individuos que tienen contactos cara a cara durante un período de tiempo.
+
+A continuación, dividimos la práctica en apartados, con una breve descripción de qué debe contener cada chunk de código donde el alumno desarrollará su respuesta así como las explicaciones que considere oportunas. Por favor, razona todas tus soluciones y escribe las explicaciones en azul.
+
+Junto al título de cada apartado se encuentra la puntuación del mismo (pueden obtenerse hasta 10,5 puntos, aunque solamente se evaluará del 0 al 10).
+
+## Carga de datos y comprobaciones iniciales (0,5 puntos)
+
+En este apartado, se pide:
+
+* Cargar el fichero adjunto en la práctica.
+* Convertirlo en un objeto grafo de IGraph. Se cargará como un grafo NO dirigido.
+* Comprobar que, efectivamente, tiene el número de nodos y enlaces correcto.
+* Simplificar: eliminar bucles y agregar enlaces múltiples, contando cuántas veces aparece un enlace y almacenándolo como un peso de la red resultante.
+
+```{r Inicio, warning=FALSE}
+### Inserta aqui tu codigo
+
+# Cargaa del fichero
+library(data.table)
+data_red <- fread("red_contactos.csv", sep =  ";", col.names =c("origen", "destino"))
+
+# Carga como grafo
+library(igraph)
+
+# graph
+g_base <- graph_from_data_frame(data_red, directed = FALSE)
+
+#install.packages('glue')
+library(glue)
+print(glue("Tenemos {vcount(g_base)} nodos y {gsize(g_base)} enlaces en nuestro grafo base."))
+
+# Creo una columna 'weight' con valor 1 por enlace.
+E(g_base)$weight <- 1
+
+# Agrupo los enlaces por su peso 'weight' y elimino los enlaces propios.
+g <- simplify(g_base, edge.attr.comb = "sum", remove.loops=TRUE)
+
+# Verifico el resultado
+print(glue("Pasamos a tener {gsize(g)} enlaces despúes de realizar un simplify en nuestro grafo base."))
+
+# Pesos de los enlaces en el grafo consolidado
+link_weights <- edge_attr(g, "weight")
+
+# Estadisticos basicos de los enlaces entre nodos.
+summary(link_weights)
+```
+
+## Selección de la componente conexa mayor (0,5 puntos)
+
+En este apartado, se pide realizar los pasos adecuados para generar un nuevo objeto grafo, que sea conexo, y que involucre a todos los nodos y enlaces de la componente conexa mayor del grafo original.
+
+```{r Conexa}
+### Inserta aqui tu codigo
+
+# Identificar la componente conexa mayor del grafo original
+cc <- components(g)
+
+# Tenemos 3 clusters, casi todos los nodos estan continidos en el primer cluster
+head(cc$csize)
+
+# Identifico el grupo con mayor numeor de nodos.
+cc_max <- which.max(cc$csize)
+
+# Nodos de la componente conexa mayor
+cc_conexa <- which(cc$membership == cc_max)
+
+# Links de la componente conexa mayor
+g2 <- induced_subgraph(g, cc_conexa)
+print(glue("Número de nodos de la componente conexa mayor {vcount(g2)}. \nConectadas: {is_connected(g2)}"))
+
+```
+
+
+## Análisis descriptivo de la componente conexa mayor (2,5 puntos)
+
+En este apartado, se pide analizar descriptivamente el grafo usando los conceptos que hemos visto durante las clases de teoría:
+
+* Grado medio
+* Distancia media
+* Diámetro
+* Distribución de grados y ajuste a una Power-Law
+* Clustering
+* Entropía de los nodos
+* Centralidad de los nodos y comparación con métricas de grado y clustering
+
+
+```{r Analisis}
+### Inserta aqui tu codigo
+
+# Grado medio
+mean_degree <- mean(degree(g2))
+nodos <- vcount(g2)
+prop_conex <- (mean_degree/nodos)*100
+
+print(glue("En promedio, cada nodo en el grafo tiene aproximadamente {round(mean_degree)} conexiones con otros nodos."))
+
+print(glue("En promedio, cada nodo está conectado al {round(prop_conex, 3)} % de todos los nodos en la red."))
+
+
+# Distancia media
+mean_distance <- mean_distance(g2)
+print(glue("Distancia media entre los nodos es de {round(mean_distance,2)}. Esto implica que, en general, los nodos están bastante cerca entre sí y que la red es relativamente compacta."))
+
+# Diámetro
+diameter <- diameter(g2)
+print(glue("La distancia más larga entre dos nodos en tu grafo es de {diameter}. Lo cual indica que no hay ningún nodo más lejos de eso."))
+
+# Distribución de grados y ajuste a una Power-Law
+degs <- degree(g2)
+
+# Cómo podemos observar de los 1388 nodos del grafo los 120 primeros tienen el 80% de las conexiones del grafo.
+hist(degs, breaks = 30, main = "Distribución de grados", xlab = "Grado", ylab = "Frecuencia")
+
+# Esto reafirma lo anterior, los grados altos se concentran entorno a los 120 nodos.
+plot(density(degs), log ="xy")
+
+# Clustering
+clustering_coef <- mean(transitivity(g2))
+print(glue(" La proporción de conexiones entre los vecinos de un nodo en relación con todas las posibles conexiones entre esos vecinos es de {round((clustering_coef*100),2)}%. Lo cual indica que se trata de un red cohesionada."))
+
+# Entropía de los nodos
+
+# Distribución de grados del grafo
+degree_distribution <- table(degree(g2))
+
+# Proporción de nodos para cada grado
+degree_distribution <- degree_distribution / sum(degree_distribution)
+
+# Entropía
+entropy <- sum(degree_distribution * log(degree_distribution))
+
+# print la entropía
+print(glue("La entropía de los nodos es de {round(entropy,3)}. Lo cual sugiere que la distribución de grados está bastante concentrada, cómo veniamos comentando anteriormente."))
+
+# Centralidad de los nodos y comparación con métricas de grado y clustering
+centrality <- centr_degree(g2)$centralization
+print(glue("La centralidad de los nodos es de {round((centrality*100),3)}%, lo cual indica que un 1/4 de los nodos en el grafo tienen un número significativamente mayor de conexiones en comparación con el resto de los nodos."))
+
+
+
+```
+
+
+## Análisis de comunidades de la componente conexa mayor (1,5 puntos)
+
+En este apartado, se pide aplicar dos algoritmos de detección de comunidades, compararlos y seleccionar cuál es, en tu opinión, el que da una mejor respuesta. Razona tu selección.
+
+```{r Comunidades}
+### Inserta aqui tu codigo
+
+# Algoritmo de Louvain: algoritmo de particionamiento de grafos que busca maximizar la modularidad de la red al agrupar los nodos en comunidades densamente conectadas.
+# La resolución determina el nivel de escala al que se forman las comunidades.
+louvain_clusters <- cluster_louvain(g2,  weights = NULL, resolution = 0.3)
+
+
+# Calcular la modularidad de ambos métodos
+modularity_louvain <- modularity(louvain_clusters)
+
+# print modularidad
+print(glue("La modularidad del algoritmo de Louvain es de {round(modularity_louvain,3)}"))
+
+# Configurar el tamaño y color de los nodos
+color_nodos <- rainbow(max(membership(louvain_clusters)))
+
+# Configurar la disposición del grafo
+layout <- layout_with_fr(g2)
+
+# Visualización mejorada
+plot(
+  louvain_clusters, g2, 
+  layout = layout, 
+  vertex.size = 5, 
+  vertex.color = color_nodos, 
+  vertex.label = NA, 
+  edge.color = "gray", 
+  main = "Comunidades detectadas por Louvain"
+)
+```
+
+
+## Visualización del grafo por comunidades de la componente conexa mayor (1,5 puntos)
+
+En este apartado, se pide visualizar el grafo coloreando cada nodo en función de la comunidad a la que pertenezca, según tu elección del apartado anterior.
+
+```{r Viz}
+### Inserta aqui tu codigo
+ll <- layout.fruchterman.reingold(g2)
+
+plot(g2, vertex.label= NA, 
+         vertex.color = color_nodos, 
+         layout=ll,
+         edge.width = 1,
+         edge.color = "gray",
+         vertex.size = (log(degree(g2))+1))
+
+
+```
+
+## Difundiendo un rumor (o un virus) en la componente conexa mayor (4 puntos)
+
+Este apartado es el que más peso en la práctica tiene. Vamos a implementar un modelo epidemiológico sobre el grafo que, típicamente, se utiliza para simular escenarios de difusión de enfermedades pero también en contextos como la distribución de rumoeres e información. Vamos a implementar un modelo SIR que se caracteriza por tener los siguientes parámetros:
+
+* Número de nodos iniciales infectados en el momento t=0 (N).
+* Beta: probabilidad de contagio de un nodo infectado (I) a un nodo susceptible de serlo (S)
+* Gamma: probabilidad de que un nodo infectado (I) se recupere en momenteo actual (R). Los nodos en estado (R) no son susceptibles y permanecen en este estado infinitamente.
+
+Se pide desarrollar una función que tenga como parámetros los tres valores anteriores y un cuarto que sea un grafo que, en nuestro caso, será la componente conexa mayor del grafo original de esta práctica. Dicha función simulará el proceso SIR:
+
+* En t=0, se seleccionan N nodos al azar, que pasarán a estado infectado.
+* En t=1, se podrán contagiar con probabilidad Beta nodos que tienen un vecino infectado; OJO: si un nodo en estado S tiene varios vecinos en estado I tiene más probabilidad de infectarse ya que cada vecino tendrá un intento de infectarle.
+* Se repite el paso anterior sucesivamente, hasta que no vemos infectados nuevos durante, al menos, 3 iteraciones.
+
+Se pide ejecutar una simulación para tres o cuatro valores del parámetro beta (N y gamma pueden ser fijos en estas simulaciones) de este proceso de manera que se pueda visualizar:
+
+* La curva de nuevos infectados en escala logarítmica para cada caso.
+* El grafo que surge de la cascada de contagios: es decir, dos nodos están enlazados ahora si uno ha contagiado al otro. Como es lógico, tanto los nodos como los enlaces de este nuevo grafo son un subconjunto del grafo original.
+
+```{r simulacion}
+
+library(igraph)
+
+# Función para simular el modelo SIR en un grafo
+simular_SIR <- function(N, beta, gamma, graph) {
+  node_states <- rep(0, vcount(graph))  # Todos los nodos empiezan como susceptibles
+  initial_infected <- sample(1:vcount(graph), N)
+  node_states[initial_infected] <- 1
+  
+  new_infected <- vector()
+  contagion_graphs <- list()
+  contagion_graph <- make_empty_graph(vcount(graph), directed = TRUE)
+  
+  # Iteración 0 con los primeros contagiados
+  contagion_graphs[[1]] <- list(
+    contagion_graph = contagion_graph,
+    node_states = node_states
+  )
+  
+  stop_not_infected <- 0
+  iter <- 2  # Empezar la iteración en 2 para que la 1 sea la inicial con contagiados
+  
+  while (stop_not_infected < 3) {
+    current_new_infected <- 0
+    
+    for (node in 1:vcount(graph)) {
+      if (node_states[node] == 0) {
+        neighbors <- neighbors(graph, node)
+        if (length(neighbors) > 0 && any(node_states[neighbors] == 1)) {
+          for (neighbor in neighbors) {
+            if (node_states[neighbor] == 1 && runif(1) < beta) {
+              node_states[node] <- 1  
+              current_new_infected <- current_new_infected + 1
+              contagion_graph <- add_edges(contagion_graph, c(neighbor, node))
+              break
+            }
+          }
+        }
+      } else if (node_states[node] == 1) {
+        if (runif(1) < gamma) {
+          node_states[node] <- 2  
+        }
+      }
+    }
+    
+    new_infected <- c(new_infected, current_new_infected)
+    contagion_graphs[[iter]] <- list(
+      contagion_graph = contagion_graph,
+      node_states = node_states
+    )
+    
+    if (current_new_infected == 0) {
+      stop_not_infected <- stop_not_infected + 1
+    } else {
+      stop_not_infected <- 0
+    }
+    
+    iter <- iter + 1
+  }
+  
+  list(
+    new_infected = new_infected, 
+    contagion_graphs = contagion_graphs,
+    initial_infected = initial_infected
+  )
+}
+
+# Parámetros de la simulación
+N <- 5
+betas <- c(0.3, 0.5, 0.7, 0.9)
+gamma <- 0.1
+
+# Almacenar los resultados
+results <- lapply(betas, function(beta) {
+  list(beta = beta, result = simular_SIR(N, beta, gamma, g2))
+})
+
+# Curva de nuevos infectados en escala logarítmica
+par(mfrow=c(2,2))
+for (i in 1:length(results)) {
+  new_infected <- results[[i]]$result$new_infected
+  plot(log1p(new_infected), type="o", main=paste("Beta =", results[[i]]$beta),
+       xlab="Iteración", ylab="Nuevos Infectados (log escala)")
+}
+
+# Crear una carpeta para las imágenes
+dir.create("img", showWarnings = FALSE)
+
+
+# Grafo de contagios en cada iteración
+img <- 1
+for (i in 1:length(results)) {
+  beta <- results[[i]]$beta
+  contagion_graphs <- results[[i]]$result$contagion_graphs
+  initial_infected <- results[[i]]$result$initial_infected
+  for (j in 1:(length(contagion_graphs))) {  # Mostrar hasta 3 iteraciones por beta
+
+    
+    contagion_graph <- contagion_graphs[[j]]$contagion_graph
+    node_states <- contagion_graphs[[j]]$node_states
+    
+    V(contagion_graph)$color <- ifelse(node_states == 1, "red", 
+                                       ifelse(node_states == 2, "green", "white"))
+    V(contagion_graph)$color[initial_infected] <- "blue"
+    
+        # Guardar la imagen lo mejor será guardarlo como 1 y ya
+    filename <- paste("img/",img ,".png", sep="")
+    png(filename, width = 1200, height = 800)
+    plot(contagion_graph, main=paste("Beta =", beta, "Iteración =", j - 1),
+         vertex.label=NA, vertex.size=5, edge.arrow.size=0.5, layout = layout)
+    dev.off()
+    
+    img <- img + 1
+    }
+}
+
+
+
+```
+
+```{r gif}
+# Cargar las bibliotecas necesarias
+library(magick)
+library(lubridate)
+library(knitr)
+
+# Crear una lista de nombres de archivos de las imágenes
+file_names <- list.files(path = "img/", full.names = TRUE)
+file_names <- file_names[order(file_names)]  # Ordenar los nombres de archivos
+
+# Crear el GIF
+gif_filename <- "resultados.gif"
+image_sequence <- image_read(file_names)
+image_write(image_sequence, gif_filename)
+
+# Incluir el GIF en el documento
+#knitr::include_graphics(paste0(gif_filename, "?", lubridate::now()))
+
+```
+
+
