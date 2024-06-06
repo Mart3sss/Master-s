@@ -22,6 +22,8 @@ En este apartado, se pide:
 
 ```{r Inicio, warning=FALSE}
 ### Inserta aqui tu codigo
+# Suprimir mensajes de carga de paquetes
+suppressPackageStartupMessages(library(igraph))
 
 # Cargaa del fichero
 library(data.table)
@@ -160,7 +162,6 @@ En este apartado, se pide aplicar dos algoritmos de detección de comunidades, c
 # La resolución determina el nivel de escala al que se forman las comunidades.
 louvain_clusters <- cluster_louvain(g2,  weights = NULL, resolution = 0.3)
 
-
 # Calcular la modularidad de ambos métodos
 modularity_louvain <- modularity(louvain_clusters)
 
@@ -194,12 +195,13 @@ En este apartado, se pide visualizar el grafo coloreando cada nodo en función d
 ### Inserta aqui tu codigo
 ll <- layout.fruchterman.reingold(g2)
 
-plot(g2, vertex.label= NA, 
-         vertex.color = color_nodos, 
-         layout=ll,
-         edge.width = 1,
-         edge.color = "gray",
-         vertex.size = (log(degree(g2))+1))
+plot(g2, vertex.label = NA, 
+     vertex.color = color_nodos, 
+     layout = ll,
+     edge.width = 1,
+     edge.color = "gray",
+     vertex.size = (log(degree(g2))+1),
+     asp = 0.6) 
 
 
 ```
@@ -229,8 +231,8 @@ library(igraph)
 
 # Función para simular el modelo SIR en un grafo
 simular_SIR <- function(N, beta, gamma, graph) {
-  node_states <- rep(0, vcount(graph))  # Todos los nodos empiezan como susceptibles
-  initial_infected <- sample(1:vcount(graph), N)
+  node_states <- rep(0, vcount(graph))  # Todos son susceptibles de contagiarse
+  initial_infected <- sample(1:vcount(graph), N) # N random nodos contagiados al inicio
   node_states[initial_infected] <- 1
   
   new_infected <- vector()
@@ -244,13 +246,15 @@ simular_SIR <- function(N, beta, gamma, graph) {
   )
   
   stop_not_infected <- 0
-  iter <- 2  # Empezar la iteración en 2 para que la 1 sea la inicial con contagiados
+  iter <- 2  # Empiezo por la iteración en 2 para que la 1 sea la inicial con contagiados
   
   while (stop_not_infected < 3) {
     current_new_infected <- 0
     
     for (node in 1:vcount(graph)) {
       if (node_states[node] == 0) {
+        # si el nodo tiene algun vecino 0 tiene una probabilidad de contagiarse
+        # esta probabilidad es aleatoria, si supera beta entonces se contagia.
         neighbors <- neighbors(graph, node)
         if (length(neighbors) > 0 && any(node_states[neighbors] == 1)) {
           for (neighbor in neighbors) {
@@ -262,19 +266,21 @@ simular_SIR <- function(N, beta, gamma, graph) {
             }
           }
         }
+        # Si ya esta contagiado tiene una probabilidad de recuperarse aleatoria si supera gamma.
       } else if (node_states[node] == 1) {
         if (runif(1) < gamma) {
           node_states[node] <- 2  
         }
       }
     }
-    
+    # almacenamos los resultados.
     new_infected <- c(new_infected, current_new_infected)
     contagion_graphs[[iter]] <- list(
       contagion_graph = contagion_graph,
       node_states = node_states
     )
     
+    # si no hay nuevos contagiados se suma 1,
     if (current_new_infected == 0) {
       stop_not_infected <- stop_not_infected + 1
     } else {
@@ -284,6 +290,7 @@ simular_SIR <- function(N, beta, gamma, graph) {
     iter <- iter + 1
   }
   
+  # Lista con los resultados totales.
   list(
     new_infected = new_infected, 
     contagion_graphs = contagion_graphs,
@@ -296,7 +303,7 @@ N <- 5
 betas <- c(0.3, 0.5, 0.7, 0.9)
 gamma <- 0.1
 
-# Almacenar los resultados
+# Resultados
 results <- lapply(betas, function(beta) {
   list(beta = beta, result = simular_SIR(N, beta, gamma, g2))
 })
@@ -309,6 +316,7 @@ for (i in 1:length(results)) {
        xlab="Iteración", ylab="Nuevos Infectados (log escala)")
 }
 
+
 # Crear una carpeta para las imágenes
 dir.create("img", showWarnings = FALSE)
 
@@ -319,17 +327,14 @@ for (i in 1:length(results)) {
   beta <- results[[i]]$beta
   contagion_graphs <- results[[i]]$result$contagion_graphs
   initial_infected <- results[[i]]$result$initial_infected
-  for (j in 1:(length(contagion_graphs))) {  # Mostrar hasta 3 iteraciones por beta
-
-    
+  
+  for (j in 1:(length(contagion_graphs))) {  
     contagion_graph <- contagion_graphs[[j]]$contagion_graph
     node_states <- contagion_graphs[[j]]$node_states
     
-    V(contagion_graph)$color <- ifelse(node_states == 1, "red", 
-                                       ifelse(node_states == 2, "green", "white"))
+    V(contagion_graph)$color <- ifelse(node_states == 1, "red",ifelse(node_states == 2, "green", "white"))
     V(contagion_graph)$color[initial_infected] <- "blue"
     
-        # Guardar la imagen lo mejor será guardarlo como 1 y ya
     filename <- paste("img/",img ,".png", sep="")
     png(filename, width = 1200, height = 800)
     plot(contagion_graph, main=paste("Beta =", beta, "Iteración =", j - 1),
@@ -345,22 +350,44 @@ for (i in 1:length(results)) {
 ```
 
 ```{r gif}
-# Cargar las bibliotecas necesarias
+
 library(magick)
-library(lubridate)
-library(knitr)
 
-# Crear una lista de nombres de archivos de las imágenes
-file_names <- list.files(path = "img/", full.names = TRUE)
-file_names <- file_names[order(file_names)]  # Ordenar los nombres de archivos
+# Directorio de salida
+dir_out <- "img/"
 
-# Crear el GIF
-gif_filename <- "resultados.gif"
-image_sequence <- image_read(file_names)
-image_write(image_sequence, gif_filename)
+# nombres de los archivos de las imágenes
+imgs <- list.files(dir_out, full.names = TRUE)
 
-# Incluir el GIF en el documento
-#knitr::include_graphics(paste0(gif_filename, "?", lubridate::now()))
+# Me quedo con los numeros remplazando todo lo que no sea un digito por un vacio.
+file_numbers <- as.numeric(gsub("\\D", "", basename(imgs)))
+
+# Padear los números con ceros a la izquierda para asegurar el orden correcto
+file_with_0_numbers <- sprintf("%03d", file_numbers)
+
+# Data frame con los nombres originales y los nuevos
+files_df <- data.frame(
+  original = imgs,
+  nuevos = file.path(dirname(imgs), paste0(file_with_0_numbers, ".png"))
+)
+
+# Orden por los nuevos nombres
+files_df <- files_df[order(files_df$nuevos), ]
+
+# Lectura de las imágenes en el orden correcto
+img_list <- lapply(files_df$original, image_read)
+
+# Unir las imágenes juntas
+img_joined <- image_join(img_list)
+
+# Animar a 2 fotogramas por segundo
+gif<- image_animate(img_joined, fps = 2)
+
+# Gif
+print(gif)
+
+# Guardar en el disco
+image_write(image = gif, path = "resultados.gif")
 
 ```
 
